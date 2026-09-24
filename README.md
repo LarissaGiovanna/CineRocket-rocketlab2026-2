@@ -110,12 +110,13 @@ Opções: `--dados-dir` (pasta dos CSVs, padrão `../dados`),
 `--database-url` (sobrescreve o `.env`), `--batch-size` (padrão 5000),
 `--truncate` (limpa as tabelas antes), `--verbose`.
 
-Regras aplicadas: campo vazio vira o mínimo do tipo (int `0`, double `0.0`,
-data `1970-01-01`); texto acima do limite é truncado e reportado ao final
-(hoje: 0 ocorrências); `dim_reviews` pula resumos vazios e é atualizada de
-forma incremental a partir das avaliações novas (média ponderada, sem
-duplicar em reexecuções). Carga total esperada: ~95k filmes, ~425k pessoas,
-~44k avaliações, ~983k bridges.
+Regras aplicadas: campo vazio vira o mínimo do tipo somente se a coluna for
+`NOT NULL` (lucro `0`, qtd `0`, nome `"Anônimo"`); coluna opcional vazia é
+salva como `NULL`. Nota vazia pula a linha (não se fabrica avaliação).
+Texto acima do limite é truncado e reportado ao final (hoje: 0 ocorrências);
+`dim_reviews` pula resumos vazios e é atualizada de forma incremental a
+partir das avaliações novas (média ponderada, sem duplicar em reexecuções).
+Carga total esperada: ~95k filmes, ~425k pessoas, ~44k avaliações, ~983k bridges.
 
 ## Banco de dados e migrações
 

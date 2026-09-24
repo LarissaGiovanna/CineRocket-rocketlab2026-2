@@ -15,9 +15,12 @@ ordem de chaves estrangeiras:
 
 Regras aplicadas:
 
-- Vazio -> valor padrão do tipo (int 0, double 0.0, Decimal 0,
-  data 1970-01-01). Strings obrigatórias vazias pulam a linha (não se
-  inventa PK/título/nome); strings opcionais vazias viram NULL (ausência).
+- Vazio -> valor padrão do tipo SOMENTE se a coluna for NOT NULL
+  (conforme a migration 0001): lucro 0, qtd de avaliações 0, nome do
+  avaliador "Anônimo", comentário "". Coluna opcional (nullable) vazia
+  -> NULL, sem inventar dado (ex.: orçamento desconhecido é NULL, não 0).
+  Exceção: nota vazia pula a linha em vez de virar 0.0, pois 0.0 é uma
+  avaliação real ("Nem decolou") e fabricá-la corromperia as médias.
 - Textos acima do limite da coluna são truncados E registrados no
   relatório final; se um dia houver truncamento real, o correto é migrar
   a coluna para TEXT via Alembic em vez de perder dados em silêncio.
@@ -49,7 +52,10 @@ from app.movies import models as m  # noqa: E402
 
 PERSON_TYPES = set(m.PERSON_TYPES)
 
-# Valores padrão quando o CSV chega vazio/ilegível (mínimo do tipo).
+# Valores padrão quando o CSV chega vazio/ilegível — aplicados SOMENTE
+# em colunas NOT NULL (ver migration 0001). Coluna opcional vazia -> NULL.
+# Obrigatórias: fact.lucro_usd/brl, dim_reviews.qtd, reviews.nome/comentario.
+# Exceção: reviews.nota vazia pula a linha (0.0 fabricaria avaliação).
 DEFAULT_INT = 0
 DEFAULT_FLOAT = 0.0
 DEFAULT_DECIMAL = Decimal("0")
@@ -108,8 +114,10 @@ def req_str(
     return clean_str(value, limit, field, ref)
 
 
-def parse_date(value: object | None, field: str = "data") -> date:
-    """Data ou EPOCH_DATE (1970-01-01) quando vazia/ilegível."""
+def parse_date(
+    value: object | None, field: str = "data", default: date | None = None
+) -> date | None:
+    """Data; vazio/ilegível -> ``default`` (None = coluna opcional -> NULL)."""
     s = clean_str(value)
     if s is not None:
         # Formato esperado: YYYY-MM-DD. Tenta também YYYY/MM/DD e YYYY.
@@ -121,11 +129,11 @@ def parse_date(value: object | None, field: str = "data") -> date:
             except ValueError:
                 continue
     fallback_stats[field] += 1
-    return EPOCH_DATE
+    return default
 
 
-def parse_int(value: object | None, field: str = "int") -> int:
-    """Inteiro ou 0 quando vazio/ilegível ("2375.0" -> 2375)."""
+def parse_int(value: object | None, field: str = "int", default: int | None = None) -> int | None:
+    """Inteiro ("2375.0" -> 2375); vazio/ilegível -> ``default``."""
     s = clean_str(value)
     if s is not None:
         try:
@@ -134,11 +142,13 @@ def parse_int(value: object | None, field: str = "int") -> int:
         except (ValueError, OverflowError):
             pass
     fallback_stats[field] += 1
-    return DEFAULT_INT
+    return default
 
 
-def parse_float(value: object | None, field: str = "float") -> float:
-    """Double ou 0.0 quando vazio/ilegível."""
+def parse_float(
+    value: object | None, field: str = "float", default: float | None = None
+) -> float | None:
+    """Double; vazio/ilegível -> ``default``."""
     s = clean_str(value)
     if s is not None:
         try:
@@ -146,11 +156,13 @@ def parse_float(value: object | None, field: str = "float") -> float:
         except ValueError:
             pass
     fallback_stats[field] += 1
-    return DEFAULT_FLOAT
+    return default
 
 
-def parse_decimal(value: object | None, field: str = "decimal") -> Decimal:
-    """Decimal ou 0 quando vazio/ilegível."""
+def parse_decimal(
+    value: object | None, field: str = "decimal", default: Decimal | None = None
+) -> Decimal | None:
+    """Decimal; vazio/ilegível -> ``default``."""
     s = clean_str(value)
     if s is not None:
         try:
@@ -158,7 +170,7 @@ def parse_decimal(value: object | None, field: str = "decimal") -> Decimal:
         except (InvalidOperation, ValueError):
             pass
     fallback_stats[field] += 1
-    return DEFAULT_DECIMAL
+    return default
 
 
 def incremental_mean(
@@ -403,13 +415,19 @@ async def main() -> None:
                     continue
                 rows.append(
                     {
+                        # lucro_* é NOT NULL -> default 0; demais numéricos
+                        # são opcionais -> NULL quando vazios.
                         "sk_movie_id": sk,
                         "orcamento_usd": parse_decimal(r.get("orcamento_usd"), "orcamento_usd"),
                         "receita_usd": parse_decimal(r.get("receita_usd"), "receita_usd"),
-                        "lucro_usd": parse_decimal(r.get("lucro_usd"), "lucro_usd"),
+                        "lucro_usd": parse_decimal(
+                            r.get("lucro_usd"), "lucro_usd", DEFAULT_DECIMAL
+                        ),
                         "orcamento_brl": parse_decimal(r.get("orcamento_brl"), "orcamento_brl"),
                         "receita_brl": parse_decimal(r.get("receita_brl"), "receita_brl"),
-                        "lucro_brl": parse_decimal(r.get("lucro_brl"), "lucro_brl"),
+                        "lucro_brl": parse_decimal(
+                            r.get("lucro_brl"), "lucro_brl", DEFAULT_DECIMAL
+                        ),
                         "popularidade": parse_float(r.get("popularidade"), "popularidade"),
                         "nota_tmdb": parse_float(r.get("nota_tmdb"), "nota_tmdb"),
                         "qtd_tmdb": parse_int(r.get("qtd_tmdb"), "qtd_tmdb"),
@@ -431,8 +449,10 @@ async def main() -> None:
                 sk_movie = clean_str(r.get("sk_movie_id"))
                 if sk_movie is None or sk_movie not in movie_ids:
                     continue
-                qtd = parse_int(r.get("qtd_avaliacoes_usuarios"), "qtd_avaliacoes_usuarios")
-                if qtd <= 0:
+                qtd = parse_int(
+                    r.get("qtd_avaliacoes_usuarios"), "qtd_avaliacoes_usuarios", DEFAULT_INT
+                )
+                if qtd is None or qtd <= 0:
                     skipped_empty += 1
                     continue
                 media = parse_float(r.get("nota_media_usuarios"), "nota_media_usuarios")
@@ -631,11 +651,11 @@ async def main() -> None:
 
     await engine.dispose()
     if fallback_stats:
-        print("[seed] valores padrão aplicados (vazio/ilegível -> mínimo do tipo):")
+        print("[seed] campos vazios/ilegíveis (default se NOT NULL, senão NULL):")
         for field, n in sorted(fallback_stats.items()):
             print(f"  {field}: {n}")
     else:
-        print("[seed] valores padrão aplicados: nenhum (todos os campos vieram preenchidos)")
+        print("[seed] campos vazios/ilegíveis: nenhum")
     if trunc_stats:
         print("[seed] ATENÇÃO — truncamento de texto (dado maior que a coluna):")
         for field, n in sorted(trunc_stats.items()):
