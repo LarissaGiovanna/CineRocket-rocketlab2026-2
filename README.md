@@ -21,6 +21,7 @@ ou rotinas de carga.
 │   │   ├── db/            # Base ORM, engine e sessões
 │   │   └── movies/        # modelos SQLAlchemy do domínio de filmes
 │   ├── migrations/        # ambiente e revisões Alembic
+│   ├── scripts/seed.py    # importação dos CSVs de dados/
 │   └── tests/
 ├── frontend/              # CineRocket (Vite + React + TS + Tailwind v4)
 │   ├── src/
@@ -77,6 +78,44 @@ Outros comandos:
 npm run build   # tsc -b + vite build, gera dist/
 npm run preview # serve o build local para conferência
 ```
+
+## Importação dos CSVs (seed)
+
+O script `backend/scripts/seed.py` lê a pasta `dados/` (`dim/`, `bridge/`,
+`fact_movies_performance.csv`, `movies_reviews.csv`), normaliza conforme
+`app/movies/models.py` e insere na ordem das chaves estrangeiras
+(genres → companies → people → movies → performance → dim_reviews →
+movie_reviews → merge incremental → bridges). Rode com o banco já migrado
+(`alembic upgrade head`).
+
+```bash
+cd backend
+# Carga total:
+.venv/Scripts/python scripts/seed.py
+# Linux/macOS: .venv/bin/python scripts/seed.py
+
+# Smoke test (200 linhas por CSV, com log detalhado):
+.venv/Scripts/python scripts/seed.py --limit 200 --verbose
+
+# Recriar tudo do zero:
+.venv/Scripts/python scripts/seed.py --truncate --batch-size 5000
+
+# Só algumas etapas:
+.venv/Scripts/python scripts/seed.py --only movies performance
+# Etapas: genres, companies, people, movies, performance,
+#         dim_reviews, movie_reviews, bridges
+```
+
+Opções: `--dados-dir` (pasta dos CSVs, padrão `../dados`),
+`--database-url` (sobrescreve o `.env`), `--batch-size` (padrão 5000),
+`--truncate` (limpa as tabelas antes), `--verbose`.
+
+Regras aplicadas: campo vazio vira o mínimo do tipo (int `0`, double `0.0`,
+data `1970-01-01`); texto acima do limite é truncado e reportado ao final
+(hoje: 0 ocorrências); `dim_reviews` pula resumos vazios e é atualizada de
+forma incremental a partir das avaliações novas (média ponderada, sem
+duplicar em reexecuções). Carga total esperada: ~95k filmes, ~425k pessoas,
+~44k avaliações, ~983k bridges.
 
 ## Banco de dados e migrações
 
