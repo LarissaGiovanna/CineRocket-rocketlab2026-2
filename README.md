@@ -22,25 +22,61 @@ ou rotinas de carga.
 │   │   └── movies/        # modelos SQLAlchemy do domínio de filmes
 │   ├── migrations/        # ambiente e revisões Alembic
 │   └── tests/
+├── frontend/              # CineRocket (Vite + React + TS + Tailwind v4)
+│   ├── src/
+│   │   ├── lib/api.ts     # client axios (VITE_API_URL)
+│   │   ├── App.tsx        # rotas base
+│   │   └── index.css      # tema Tailwind + tokens do design.md
+│   └── .env.example
 └── README.md
 ```
 
-## Execução
+## Pré-requisitos
 
-Requer Python 3.11 ou superior.
+- Python 3.11 ou superior
+- Node 20+ e npm 10+
+
+## Execução — Backend (FastAPI)
 
 ```bash
 cd backend
-python3 -m venv .venv
+python -m venv .venv
+# Linux/macOS:
 .venv/bin/pip install -e ".[dev]"
 cp .env.example .env
 .venv/bin/alembic upgrade head
 .venv/bin/uvicorn app.main:app --reload
+
+# Windows (PowerShell / Git Bash):
+.venv/Scripts/pip install -e ".[dev]"
+copy .env.example .env
+.venv/Scripts/python -m alembic upgrade head
+.venv/Scripts/python -m uvicorn app.main:app --reload
 ```
 
 A API mínima ficará disponível em `http://localhost:8000`; use
 `http://localhost:8000/docs` para a documentação automática. O endpoint
 `GET /health` permite conferir se a aplicação iniciou corretamente.
+
+## Execução — Frontend (React + TS + Tailwind)
+
+```bash
+cd frontend
+npm install
+cp .env.example .env   # Windows: copy .env.example .env
+npm run dev
+```
+
+O app ficará disponível em `http://localhost:5173` e consome a API via
+`VITE_API_URL` (padrão `http://localhost:8000`, ver `frontend/.env.example`).
+O `vite.config.ts` já faz proxy de `/api` para `http://localhost:8000`.
+
+Outros comandos:
+
+```bash
+npm run build   # tsc -b + vite build, gera dist/
+npm run preview # serve o build local para conferência
+```
 
 ## Banco de dados e migrações
 
