@@ -49,3 +49,21 @@ class MovieCard(BaseModel):
     def id_filme(self) -> str:
         """Valor pronto para a coluna ``dim_movies.id_filme``."""
         return self.id
+
+
+class MovieListResponse(BaseModel):
+    """Envelope de listagem paginada (Home/Busca do design.md)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    items: list[MovieCard] = Field(default_factory=list)
+    total: int = Field(ge=0, description="Quantos filmes há no total")
+    page: int = Field(default=1, ge=1, description="Página pedida (1-based)")
+    page_size: int = Field(default=20, ge=1, le=100, description="Itens por página")
+
+    @property
+    def total_pages(self) -> int:
+        """Quantidade de páginas (teto de total/page_size)."""
+        if self.page_size <= 0:
+            return 0
+        return (self.total + self.page_size - 1) // self.page_size
