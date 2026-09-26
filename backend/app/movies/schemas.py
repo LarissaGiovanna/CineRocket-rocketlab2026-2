@@ -67,3 +67,55 @@ class MovieListResponse(BaseModel):
         if self.page_size <= 0:
             return 0
         return (self.total + self.page_size - 1) // self.page_size
+
+
+class MovieDetail(BaseModel):
+    """Detalhe do filme (design.md: Detalhes do Filme).
+
+    Performance e resumo das avaliações vêm como variáveis separadas
+    (sem objetos aninhados); cada uma é ``None`` quando o filme não
+    tem aquele dado.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    id: str = Field(
+        validation_alias=AliasChoices("id", "id_filme"),
+        serialization_alias="id",
+        min_length=1,
+        max_length=50,
+    )
+    titulo: str = Field(min_length=1, max_length=500)
+    ano_lancamento: int | None = None
+    sinopse: str | None = None
+    url_poster: str | None = Field(default=None, max_length=2048)
+    generos: list[str] = Field(default_factory=list)
+    diretores: list[str] = Field(default_factory=list)
+    atores: list[str] = Field(default_factory=list)
+    # Performance (fact_movies_performance).
+    orcamento_usd: float | None = None
+    receita_usd: float | None = None
+    lucro_usd: float | None = None
+    popularidade: float | None = None
+    nota_tmdb: float | None = None
+    qtd_tmdb: int | None = None
+    nota_imdb: float | None = None
+    qtd_imdb: int | None = None
+    # Resumo das avaliações (dim_reviews).
+    qtd_avaliacoes: int | None = Field(default=None, ge=0)
+    nota_media: float | None = Field(default=None, ge=0, le=10)
+
+    @field_validator("url_poster", mode="before")
+    @classmethod
+    def _blank_poster_to_none(cls, value: object) -> object | None:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("nota_media")
+    @classmethod
+    def _round_media(cls, value: float | None) -> float | None:
+        """Média da plataforma com 1 casa decimal (decisão do design)."""
+        if value is None:
+            return None
+        return round(value, 1)
