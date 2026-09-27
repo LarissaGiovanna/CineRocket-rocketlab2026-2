@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import engine, get_db
 from app.movies import models as movies_models
-from app.movies.schemas import MovieCard, MovieDetail, MovieListResponse
+from app.movies.schemas import MovieCard, MovieDetail, MovieListResponse, MovieReviewItem
 
 configure_logging()
 settings = get_settings()
@@ -140,6 +140,42 @@ def create_app() -> FastAPI:
             qtd_avaliacoes=summary.qtd_avaliacoes_usuarios if summary else None,
             nota_media=summary.nota_media_usuarios if summary else None,
         )
+
+    @app.get("/movies/{movie_id}/reviews", tags=["movies"], response_model=list[MovieReviewItem])
+    async def get_movie_reviews(
+        movie_id: str, db: AsyncSession = Depends(get_db)
+    ) -> list[MovieReviewItem]:
+        """Lista as avaliações individuais de um filme (mais recentes primeiro).
+
+        Filme inexistente -> 404; filme sem avaliações -> 404 com mensagem
+        própria (o front distingue pelo ``detail``).
+        """
+        sk_movie_id = (
+            await db.execute(
+                select(movies_models.DimMovie.sk_movie_id).where(
+                    movies_models.DimMovie.id_filme == movie_id
+                )
+            )
+        ).scalar_one_or_none()
+        if sk_movie_id is None:
+            raise HTTPException(status_code=404, detail="Filme não encontrado")
+
+        rows = (
+            await db.execute(
+                select(movies_models.MovieReview)
+                .where(movies_models.MovieReview.sk_movie_id == sk_movie_id)
+                .order_by(movies_models.MovieReview.created_at.desc())
+            )
+        ).scalars()
+        items = [
+            MovieReviewItem(
+                nome=r.nome, nota=r.nota, comentario=r.comentario, data=r.created_at
+            )
+            for r in rows
+        ]
+        if not items:
+            raise HTTPException(status_code=404, detail="Filme ainda não possui avaliações")
+        return items
         
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:

@@ -6,6 +6,8 @@ backend. O frontend espelha as mesmas regras com validação em runtime em
 chaves e aplicam os mesmos limites.
 """
 
+from datetime import datetime
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
@@ -119,3 +121,14 @@ class MovieDetail(BaseModel):
         if value is None:
             return None
         return round(value, 1)
+
+
+class MovieReviewItem(BaseModel):
+    """Uma avaliação individual (design.md: card de avaliação)."""
+
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    nome: str = Field(min_length=1, max_length=120)
+    nota: float = Field(ge=0, le=10)
+    comentario: str = Field(max_length=4000)
+    data: datetime | None = Field(default=None, description="created_at no banco")
