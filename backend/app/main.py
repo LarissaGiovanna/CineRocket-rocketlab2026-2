@@ -12,7 +12,14 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import engine, get_db
 from app.movies import models as movies_models
-from app.movies.schemas import MovieCard, MovieDetail, MovieListResponse, MovieReviewItem
+from app.movies.schemas import (
+    MovieCard,
+    MovieDetail,
+    MovieListResponse,
+    MovieReviewCreate,
+    MovieReviewCreatedResponse,
+    MovieReviewItem,
+)
 
 configure_logging()
 settings = get_settings()
@@ -176,12 +183,84 @@ def create_app() -> FastAPI:
         if not items:
             raise HTTPException(status_code=404, detail="Filme ainda não possui avaliações")
         return items
+
+    @app.post(
+        "/movies/{movie_id}/reviews",
+        tags=["movies"],
+        response_model=MovieReviewCreatedResponse,
+        status_code=201,
+    )
+    async def create_movie_review(
+        movie_id: str, payload: MovieReviewCreate, db: AsyncSession = Depends(get_db)
+    ) -> MovieReviewCreatedResponse:
+        """Cria uma avaliação (nome/comentário strings, nota double 0–10).
+
+        Filme inexistente -> 404. O resumo (dim_reviews) é atualizado de
+        forma incremental, com a média gravada em 2 casas decimais:
+        ``nova_media = round((media*qtd + nota)/(qtd+1), 2)``.
+        Retorna a review criada + média e quantidade atualizadas.
+        """
+        sk_movie_id = (
+            await db.execute(
+                select(movies_models.DimMovie.sk_movie_id).where(
+                    movies_models.DimMovie.id_filme == movie_id
+                )
+            )
+        ).scalar_one_or_none()
+        if sk_movie_id is None:
+            raise HTTPException(status_code=404, detail="Filme não encontrado")
+
+        review = movies_models.MovieReview(
+            sk_movie_review_id=movies_models.generate_surrogate_key(),
+            sk_movie_id=sk_movie_id,
+            nome=payload.nome,
+            nota=payload.nota,
+            comentario=payload.comentario,
+        )
+        db.add(review)
+
+        summary = (
+            await db.execute(
+                select(movies_models.DimReview).where(
+                    movies_models.DimReview.sk_movie_id == sk_movie_id
+                )
+            )
+        ).scalar_one_or_none()
+        if summary is None:
+            new_qtd, new_avg = 1, round(payload.nota, 2)
+            db.add(
+                movies_models.DimReview(
+                    sk_review_id=movies_models.generate_surrogate_key(),
+                    sk_movie_id=sk_movie_id,
+                    qtd_avaliacoes_usuarios=new_qtd,
+                    nota_media_usuarios=new_avg,
+                )
+            )
+        else:
+            old_qtd = summary.qtd_avaliacoes_usuarios or 0
+            old_avg = summary.nota_media_usuarios or 0.0
+            new_qtd = old_qtd + 1
+            new_avg = round((old_avg * old_qtd + payload.nota) / new_qtd, 2)
+            summary.qtd_avaliacoes_usuarios = new_qtd
+            summary.nota_media_usuarios = new_avg
+
+        await db.commit()
+        await db.refresh(review)
+        return MovieReviewCreatedResponse(
+            review=MovieReviewItem(
+                nome=review.nome,
+                nota=review.nota,
+                comentario=review.comentario,
+                data=review.created_at,
+            ),
+            nota_media_usuarios=new_avg,
+            qtd_avaliacoes_usuarios=new_qtd,
+        )
         
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:
         return {"status": "ok"}
     
-
     return app
 
 

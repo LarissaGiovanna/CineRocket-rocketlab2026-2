@@ -132,3 +132,23 @@ class MovieReviewItem(BaseModel):
     nota: float = Field(ge=0, le=10)
     comentario: str = Field(max_length=4000)
     data: datetime | None = Field(default=None, description="created_at no banco")
+
+
+class MovieReviewCreate(BaseModel):
+    """Corpo do POST de avaliação: strings validadas e nota 0–10."""
+
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    nome: str = Field(min_length=1, max_length=120)
+    nota: float = Field(ge=0, le=10)
+    comentario: str = Field(default="", max_length=4000)
+
+
+class MovieReviewCreatedResponse(BaseModel):
+    """Resposta do POST: a review criada + resumo atualizado do filme."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    review: MovieReviewItem
+    nota_media_usuarios: float = Field(ge=0, le=10)
+    qtd_avaliacoes_usuarios: int = Field(ge=0)

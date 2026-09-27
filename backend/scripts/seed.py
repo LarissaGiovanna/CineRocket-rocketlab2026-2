@@ -548,6 +548,7 @@ async def main() -> None:
             for sk_movie, notas in new_review_groups.items():
                 old_qtd, old_avg = existing.get(sk_movie, (0, None))
                 new_qtd, new_avg = incremental_mean(old_avg, old_qtd, notas)
+                new_avg = round(new_avg, 2)
                 if sk_movie in existing:
                     to_update.append(
                         {"b_sk_movie_id": sk_movie, "qtd": new_qtd, "media": new_avg}
