@@ -156,8 +156,7 @@ def create_app() -> FastAPI:
     ) -> list[MovieReviewItem]:
         """Lista as avaliações individuais de um filme (mais recentes primeiro).
 
-        Filme inexistente -> 404; filme sem avaliações -> 404 com mensagem
-        própria (o front distingue pelo ``detail``).
+        Sempre 200: sem avaliações (ou filme inexistente) retorna lista vazia.
         """
         sk_movie_id = (
             await db.execute(
@@ -167,7 +166,7 @@ def create_app() -> FastAPI:
             )
         ).scalar_one_or_none()
         if sk_movie_id is None:
-            raise HTTPException(status_code=404, detail="Filme não encontrado")
+            return []
 
         rows = (
             await db.execute(
@@ -176,13 +175,12 @@ def create_app() -> FastAPI:
                 .order_by(movies_models.MovieReview.created_at.desc())
             )
         ).scalars()
-        items = [
+        return [
             MovieReviewItem(
                 nome=r.nome, nota=r.nota, comentario=r.comentario, data=r.created_at
             )
             for r in rows
         ]
-        return items
     
     @app.post(
         "/movies", tags=["movies"], response_model=MovieDetail, status_code=201
@@ -239,7 +237,7 @@ def create_app() -> FastAPI:
                 await db.execute(select(movies_models.DimMovie.id_filme))
             ).scalars()
         )
-        for _ in range(100000):
+        for _ in range(1000):
             candidate = f"{uuid4().int % 1000000:06d}"
             if candidate not in existing_ids:
                 break
@@ -256,12 +254,12 @@ def create_app() -> FastAPI:
             people=[directors[n] for n in payload.diretores],
         )
         db.add(movie)
-        # se dois filmes forem cadastrados ao mesmo tempo, pode haver colisão de id_filme; o commit falha e o rollback é feito
+        # Corrida entre dois cadastros: o commit falha e nada persiste.
         try:
             await db.commit()
-        except sqlalchemy.exc.IntegrityError as e:
+        except Exception as exc:
             await db.rollback()
-            raise HTTPException(status_code=500, detail=f"Erro ao salvar o filme: {str(e)}")
+            raise HTTPException(status_code=500, detail="Erro ao salvar o filme") from exc
 
         return MovieDetail(
             id=candidate,
@@ -270,6 +268,114 @@ def create_app() -> FastAPI:
             sinopse=payload.sinopse,
             generos=list(payload.generos),
             diretores=list(payload.diretores),
+        )
+
+    @app.put("/movies/{movie_id}", tags=["movies"], response_model=MovieDetail)
+    async def update_movie(
+        movie_id: str, payload: MovieCreate, db: AsyncSession = Depends(get_db)
+    ) -> MovieDetail:
+        """Atualiza um filme (mesmo corpo do cadastro).
+
+        1. Busca como no GET (404 se não existir), com gêneros e pessoas.
+        2. Valida TODA a lista de gêneros antes de mexer no banco:
+           desconhecido -> 400 sem escrever nada; válido -> ``genres =`` novo.
+        3. Diretores: nome novo -> criado; nome já ligado ao filme -> mantido;
+           nome que pertence a diretora de OUTRO filme -> 400 sem alterar nada
+           (evita atribuir o filme à pessoa errada em caso de homônimo).
+           Atores/rotistas do filme são preservados.
+        """
+        stmt = (
+            select(movies_models.DimMovie)
+            .where(movies_models.DimMovie.id_filme == movie_id)
+            .options(
+                selectinload(movies_models.DimMovie.genres),
+                selectinload(movies_models.DimMovie.people),
+                selectinload(movies_models.DimMovie.performance),
+                selectinload(movies_models.DimMovie.reviews_summary),
+            )
+        )
+        movie = (await db.execute(stmt)).scalar_one_or_none()
+        if movie is None:
+            raise HTTPException(status_code=404, detail="Filme não encontrado")
+
+        genre_rows = (
+            await db.execute(
+                select(movies_models.DimGenre).where(
+                    movies_models.DimGenre.nome_genero.in_(payload.generos)
+                )
+            )
+        ).scalars()
+        found_genres = {g.nome_genero: g for g in genre_rows}
+        missing_genres = [g for g in payload.generos if g not in found_genres]
+        if missing_genres:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Gêneros não cadastrados: {', '.join(missing_genres)}",
+            )
+
+        current_directors = {
+            p.nome_pessoa: p for p in movie.people if p.tipo_pessoa == "Diretor"
+        }
+        new_names = [n for n in payload.diretores if n not in current_directors]
+        taken: list[str] = []
+        if new_names:
+            taken_rows = (
+                await db.execute(
+                    select(movies_models.DimPerson).where(
+                        movies_models.DimPerson.tipo_pessoa == "Diretor",
+                        movies_models.DimPerson.nome_pessoa.in_(new_names),
+                    )
+                )
+            ).scalars()
+            taken = [p.nome_pessoa for p in taken_rows]
+        if taken:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Diretores já cadastrados para outra pessoa: {', '.join(taken)}",
+            )
+
+        directors = [current_directors[n] for n in payload.diretores if n in current_directors]
+        for name in new_names:
+            person = movies_models.DimPerson(
+                sk_person_id=movies_models.generate_surrogate_key(),
+                nome_pessoa=name,
+                tipo_pessoa="Diretor",
+            )
+            db.add(person)
+            directors.append(person)
+
+        movie.titulo = payload.titulo
+        movie.ano_lancamento = payload.ano_lancamento
+        movie.sinopse = payload.sinopse
+        movie.genres = [found_genres[g] for g in payload.generos]
+        movie.people = [p for p in movie.people if p.tipo_pessoa != "Diretor"] + directors
+        await db.commit()
+
+        perf = movie.performance
+        summary = movie.reviews_summary
+
+        def _num(value):  # type: ignore[no-untyped-def]
+            return float(value) if value is not None else None
+
+        return MovieDetail(
+            id=movie.id_filme,
+            titulo=movie.titulo,
+            ano_lancamento=movie.ano_lancamento,
+            sinopse=movie.sinopse,
+            url_poster=movie.url_poster,
+            generos=[g.nome_genero for g in movie.genres],
+            diretores=[p.nome_pessoa for p in directors],
+            atores=[p.nome_pessoa for p in movie.people if p.tipo_pessoa == "Ator"],
+            orcamento_usd=_num(perf.orcamento_usd) if perf else None,
+            receita_usd=_num(perf.receita_usd) if perf else None,
+            lucro_usd=_num(perf.lucro_usd) if perf else None,
+            popularidade=perf.popularidade if perf else None,
+            nota_tmdb=perf.nota_tmdb if perf else None,
+            qtd_tmdb=perf.qtd_tmdb if perf else None,
+            nota_imdb=perf.nota_imdb if perf else None,
+            qtd_imdb=perf.qtd_imdb if perf else None,
+            qtd_avaliacoes=summary.qtd_avaliacoes_usuarios if summary else None,
+            nota_media=summary.nota_media_usuarios if summary else None,
         )
 
     @app.get("/health", tags=["health"])

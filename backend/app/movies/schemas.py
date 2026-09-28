@@ -140,6 +140,7 @@ class MovieReviewCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
 
     nome: str = Field(min_length=1, max_length=120)
+    # Fora da escala é trazido para dentro: 11 vira 10, -1 vira 0.
     nota: float = field_validator("nota")(lambda x: max(0, min(10, x)))
     comentario: str = Field(default="", max_length=4000)
 

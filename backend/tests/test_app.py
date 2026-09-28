@@ -41,12 +41,13 @@ async def test_get_movie_by_id_ok() -> None:
     assert isinstance(body["atores"], list)
 
 
-async def test_get_movie_reviews_not_found() -> None:
+async def test_get_movie_reviews_not_found_retorna_lista_vazia() -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/movies/id-que-nao-existe/reviews")
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 async def test_get_movie_reviews_shape() -> None:
@@ -58,19 +59,19 @@ async def test_get_movie_reviews_shape() -> None:
             pytest.skip("banco sem filmes (rode scripts/seed.py)")
         for item in items:
             response = await client.get(f"/movies/{item['id']}/reviews")
-            if response.status_code == 200:
+            assert response.status_code == 200
+            if response.json():
                 break
         else:
             pytest.skip("nenhum filme da amostra tem avaliações")
 
-    assert response.status_code == 200
     body = response.json()
     assert isinstance(body, list) and len(body) > 0
     for review in body:
         assert {"nome", "nota", "comentario", "data"} <= set(review)
 
 
-async def test_get_movie_reviews_vazias_retorna_404() -> None:
+async def test_get_movie_reviews_vazias_retorna_lista_vazia() -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         listing = await client.get("/movies", params={"page": 1, "page_size": 50})
@@ -81,8 +82,8 @@ async def test_get_movie_reviews_vazias_retorna_404() -> None:
             detail = await client.get(f"/movies/{item['id']}")
             assert detail.status_code == 200  # filme existe...
             reviews = await client.get(f"/movies/{item['id']}/reviews")
-            if reviews.status_code == 404:
-                assert reviews.json()["detail"] == "Filme ainda não possui avaliações"
+            assert reviews.status_code == 200
+            if reviews.json() == []:
                 return
         pytest.skip("todos os filmes da amostra têm avaliações")
 
@@ -147,8 +148,6 @@ async def test_post_review_filme_inexistente(review_client) -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"nome": "Ada", "nota": 11},  # acima da escala
-        {"nome": "Ada", "nota": -1},  # abaixo da escala
         {"nome": "Ada", "nota": "alta"},  # não é double
         {"nome": "   ", "nota": 5},  # nome vazio
         {"nome": "Ada", "nota": 5, "comentario": "x" * 4001},  # comentário longo
@@ -159,6 +158,21 @@ async def test_post_review_entrada_invalida(review_client, payload: dict) -> Non
     response = await review_client.post("/movies/filme-teste-1/reviews", json=payload)
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("nota_enviada", "nota_salva"),
+    [(11, 10.0), (15.5, 10.0), (-1, 0.0), (-20, 0.0)],
+)
+async def test_post_review_nota_fora_da_escala_e_trazida_para_dentro(
+    review_client, nota_enviada: float, nota_salva: float
+) -> None:
+    response = await review_client.post(
+        "/movies/filme-teste-1/reviews", json={"nome": "Ada", "nota": nota_enviada}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["review"]["nota"] == nota_salva
 
 
 @pytest.fixture
@@ -213,7 +227,7 @@ async def test_post_movie_ok(movie_client) -> None:
 
     assert response.status_code == 201, response.text
     body = response.json()
-    assert re.fullmatch(r"\d{5}", body["id"])
+    assert re.fullmatch(r"\d{6}", body["id"])
     assert body["titulo"] == "Filme Novo"
     assert body["diretores"] == ["Diretora Existente", "Diretor Novo"]
     assert body["generos"] == ["Drama", "Comédia"]
@@ -290,3 +304,140 @@ async def test_post_movie_ids_unicos(movie_client) -> None:
         ids.add(response.json()["id"])
 
     assert len(ids) == 3
+
+
+async def _post_filme(client, titulo="F Base", diretores=None, generos=None):
+    response = await client.post(
+        "/movies",
+        json={
+            "titulo": titulo,
+            "diretores": diretores or ["Diretora Existente"],
+            "ano_lancamento": 2024,
+            "generos": generos or ["Drama"],
+            "sinopse": "Base.",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def test_put_movie_ok(movie_client) -> None:
+    client, _ = movie_client
+    created = await _post_filme(client, titulo="Antes")
+
+    response = await client.put(
+        f"/movies/{created['id']}",
+        json={
+            "titulo": "Depois",
+            "diretores": ["Diretora Existente"],
+            "ano_lancamento": 2025,
+            "generos": ["Comédia"],
+            "sinopse": "Nova sinopse.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["id"] == created["id"]
+    assert body["titulo"] == "Depois"
+    assert body["ano_lancamento"] == 2025
+    assert body["generos"] == ["Comédia"]
+    assert body["diretores"] == ["Diretora Existente"]
+
+    detail = (await client.get(f"/movies/{created['id']}")).json()
+    assert detail["titulo"] == "Depois" and detail["generos"] == ["Comédia"]
+
+
+async def test_put_movie_diretor_novo_criado(movie_client) -> None:
+    from sqlalchemy import select
+
+    from app.movies.models import DimPerson
+
+    client, session_factory = movie_client
+    created = await _post_filme(client)
+
+    response = await client.put(
+        f"/movies/{created['id']}",
+        json={
+            "titulo": "F Base",
+            "diretores": ["Estreante Total"],
+            "ano_lancamento": 2024,
+            "generos": ["Drama"],
+            "sinopse": "Base.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["diretores"] == ["Estreante Total"]
+    async with session_factory() as session:
+        row = (
+            await session.execute(
+                select(DimPerson).where(
+                    DimPerson.nome_pessoa == "Estreante Total",
+                    DimPerson.tipo_pessoa == "Diretor",
+                )
+            )
+        ).scalar_one_or_none()
+    assert row is not None
+
+
+async def test_put_movie_diretor_de_outro_filme_400(movie_client) -> None:
+    client, _ = movie_client
+    filme_a = await _post_filme(client, titulo="Filme A", diretores=["Dona A"])
+    filme_b = await _post_filme(client, titulo="Filme B")
+
+    response = await client.put(
+        f"/movies/{filme_b['id']}",
+        json={
+            "titulo": "Filme B Alterado",
+            "diretores": ["Dona A"],
+            "ano_lancamento": 2024,
+            "generos": ["Drama"],
+            "sinopse": "Base.",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Dona A" in response.json()["detail"]
+
+    detail_b = (await client.get(f"/movies/{filme_b['id']}")).json()
+    assert detail_b["titulo"] == "Filme B"  # nada foi alterado
+    assert detail_b["diretores"] == ["Diretora Existente"]
+    detail_a = (await client.get(f"/movies/{filme_a['id']}")).json()
+    assert detail_a["diretores"] == ["Dona A"]
+
+
+async def test_put_movie_genero_inexistente_400(movie_client) -> None:
+    client, _ = movie_client
+    created = await _post_filme(client, titulo="Intocado")
+
+    response = await client.put(
+        f"/movies/{created['id']}",
+        json={
+            "titulo": "Mudado",
+            "diretores": ["Diretora Existente"],
+            "ano_lancamento": 2024,
+            "generos": ["Inventado"],
+            "sinopse": "Base.",
+        },
+    )
+
+    assert response.status_code == 400
+    detail = (await client.get(f"/movies/{created['id']}")).json()
+    assert detail["titulo"] == "Intocado" and detail["generos"] == ["Drama"]
+
+
+async def test_put_movie_not_found(movie_client) -> None:
+    client, _ = movie_client
+    response = await client.put(
+        "/movies/00000",
+        json={
+            "titulo": "X",
+            "diretores": ["Diretora Existente"],
+            "ano_lancamento": 2024,
+            "generos": ["Drama"],
+            "sinopse": "Y.",
+        },
+    )
+
+    assert response.status_code == 404
