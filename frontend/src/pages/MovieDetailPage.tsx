@@ -99,8 +99,8 @@ export default function MovieDetailPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 pb-12 md:px-6">
-      {/* Hero backdrop */}
-      <div className="relative -mx-4 h-64 overflow-hidden md:-mx-6 md:h-80">
+      {/* Hero backdrop (fundo, atrás do conteúdo) */}
+      <div className="relative -mx-4 h-64 overflow-hidden md:-mx-6 md:h-80" aria-hidden>
         {movie.url_poster ? (
           <img src={movie.url_poster} alt="" aria-hidden className="h-full w-full scale-105 object-cover opacity-35 blur-sm" />
         ) : (
@@ -109,8 +109,8 @@ export default function MovieDetailPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
       </div>
 
-      {/* Poster + info */}
-      <div className="-mt-20 flex flex-col gap-5 sm:flex-row">
+      {/* Poster + info (acima do backdrop) */}
+      <div className="relative z-10 -mt-20 flex flex-col gap-5 sm:flex-row">
         {movie.url_poster ? (
           <img
             src={movie.url_poster}

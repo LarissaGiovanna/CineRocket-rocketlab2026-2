@@ -28,9 +28,19 @@ export default function Navbar() {
         {/* Centro: busca (oculta em mobile) */}
         <form onSubmit={submit} className="mx-auto hidden w-full max-w-md flex-1 md:flex" role="search">
           <div className="relative w-full">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden>
-              🔍
-            </span>
+            <svg
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.5" y2="16.5" />
+            </svg>
             <input
               value={value}
               onChange={(e) => setValue(e.target.value)}
@@ -41,14 +51,26 @@ export default function Navbar() {
         </form>
 
         <div className="ml-auto flex items-center gap-2 md:gap-3">
-          {/* Mobile: lupa expansível */}
+          {/* Mobile: busca expansível */}
           <button
             type="button"
             className="rounded-xl border border-border p-2 md:hidden"
             aria-label="Abrir busca"
             onClick={() => setMobileOpen((v) => !v)}
           >
-            🔍
+            <svg
+              className="h-4 w-4 text-muted-foreground"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.5" y2="16.5" />
+            </svg>
           </button>
           {/* Direita: Adicionar Filme (oculto em mobile) */}
           <Link
