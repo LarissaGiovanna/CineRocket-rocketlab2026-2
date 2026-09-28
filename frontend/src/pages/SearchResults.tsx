@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import MovieCardView from "../components/MovieCard";
-import { fetchGenreGroups } from "../lib/genreBrowse";
+import { loadGenreCatalog, type GenreLoadProgress } from "../lib/genreBrowse";
 import { listMovies } from "../lib/movies";
 import type { MovieCard } from "../lib/movieCard";
 
@@ -21,40 +21,63 @@ export default function SearchResults() {
   const [suggestions, setSuggestions] = useState<MovieCard[]>([]);
   const [layout, setLayout] = useState<"grid" | "list">("list");
   const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState<GenreLoadProgress | null>(null);
+  const cancelled = useRef(false);
 
   useEffect(() => {
-    let alive = true;
+    cancelled.current = false;
     setLoading(true);
     setSuggestions([]);
+    setProgress(null);
 
     if (genre) {
-      // Filtro por gênero: agrupa o pool no navegador e recorta a seção.
-      fetchGenreGroups(q.trim())
+      // Filtro por gênero: lê o banco página por página e recorta a seção,
+      // renderizando progressivamente (backend não filtra por gênero).
+      loadGenreCatalog({
+        query: q.trim(),
+        isCancelled: () => cancelled.current,
+        onUpdate: (allGroups, p) => {
+          if (cancelled.current) return;
+          const group = allGroups.find((g) => g.genre === genre);
+          setItems(group ? group.movies : []);
+          setTotal(group ? group.movies.length : 0);
+          setProgress(p);
+        },
+      })
         .then((res) => {
-          if (!alive) return;
+          if (cancelled.current) return;
           const group = res.groups.find((g) => g.genre === genre);
           setItems(group ? group.movies : []);
           setTotal(group ? group.movies.length : 0);
           if (!group || group.movies.length === 0) {
             listMovies(1, 5, "")
-              .then((r) => alive && setSuggestions(r.items))
+              .then((r) => !cancelled.current && setSuggestions(r.items))
               .catch(() => {});
           }
+          setLoading(false);
         })
-        .catch(() => alive && setItems([]))
-        .finally(() => alive && setLoading(false));
+        .catch(() => {
+          if (cancelled.current) return;
+          setItems([]);
+          setLoading(false);
+        });
     } else {
       listMovies(1, 20, q.trim())
         .then((res) => {
-          if (!alive) return;
+          if (cancelled.current) return;
           setItems(res.items);
           setTotal(res.total);
         })
-        .catch(() => alive && setItems([]))
-        .finally(() => alive && setLoading(false));
+        .catch(() => {
+          if (cancelled.current) return;
+          setItems([]);
+        })
+        .finally(() => {
+          if (!cancelled.current) setLoading(false);
+        });
     }
     return () => {
-      alive = false;
+      cancelled.current = true;
     };
   }, [q, genre]);
 
@@ -102,7 +125,23 @@ export default function SearchResults() {
       </div>
 
       <div className="mt-6">
-        {loading ? (
+        {loading && genre && progress && (
+          <div className="mb-4 rounded-2xl border border-border bg-card p-4" role="status">
+            <p className="text-sm text-foreground-muted">
+              Buscando filmes no banco de dados…{" "}
+              <span className="font-mono text-xs">
+                página {progress.page} de {progress.maxPages} · {progress.moviesSeen} visto(s)
+              </span>
+            </p>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.round((progress.page / Math.max(1, progress.maxPages)) * 100))}%` }}
+              />
+            </div>
+          </div>
+        )}
+        {loading && items.length === 0 ? (
           <p className="text-sm text-muted-foreground">Buscando…</p>
         ) : items.length > 0 ? (
           layout === "grid" ? (
