@@ -503,3 +503,69 @@ async def test_put_movie_sem_diretor_segue_logica_do_post(movie_client) -> None:
             )
         ).scalar()
     assert count == 1  # reaproveitado, não duplicado
+
+
+async def test_delete_movie_ok(movie_client) -> None:
+    from sqlalchemy import func, select
+
+    from app.movies import models as mm
+
+    client, session_factory = movie_client
+    created = await _post_filme(client, titulo="Apagar")
+    async with session_factory() as session:
+        sk = (
+            await session.execute(
+                select(mm.DimMovie.sk_movie_id).where(mm.DimMovie.id_filme == created["id"])
+            )
+        ).scalar_one()
+        session.add(mm.FactMoviePerformance(sk_movie_id=sk, nota_imdb=7.5))
+        session.add(
+            mm.DimReview(sk_review_id="r1", sk_movie_id=sk, qtd_avaliacoes_usuarios=1)
+        )
+        session.add(
+            mm.MovieReview(
+                sk_movie_review_id="mr1", sk_movie_id=sk, nome="T", nota=5, comentario="C"
+            )
+        )
+        await session.commit()
+
+    response = await client.delete(f"/movies/{created['id']}")
+
+    assert response.status_code == 204
+    assert (await client.get(f"/movies/{created['id']}")).status_code == 404
+    assert (await client.delete(f"/movies/{created['id']}")).status_code == 404
+
+    async with session_factory() as session:
+        assert (
+            await session.execute(select(mm.DimMovie).where(mm.DimMovie.sk_movie_id == sk))
+        ).scalar_one_or_none() is None
+        for bridge in (mm.bridge_movie_genre, mm.bridge_movie_person):
+            left = next(c for c in bridge.c if c.name == "sk_movie_id")
+            count = (
+                await session.execute(select(func.count()).select_from(bridge).where(left == sk))
+            ).scalar()
+            assert count == 0  # bridges órfãs limpas
+        for model, key in (
+            (mm.FactMoviePerformance, mm.FactMoviePerformance.sk_movie_id),
+            (mm.DimReview, mm.DimReview.sk_movie_id),
+            (mm.MovieReview, mm.MovieReview.sk_movie_id),
+        ):
+            count = (
+                await session.execute(select(func.count()).select_from(model).where(key == sk))
+            ).scalar()
+            assert count == 0  # dependentes em cascata limpos
+        assert (
+            await session.execute(
+                select(mm.DimGenre).where(mm.DimGenre.nome_genero == "Drama")
+            )
+        ).scalar_one_or_none() is not None  # catálogo preservado
+        assert (
+            await session.execute(
+                select(mm.DimPerson).where(mm.DimPerson.nome_pessoa == "Diretora Existente")
+            )
+        ).scalar_one_or_none() is not None
+
+
+async def test_delete_movie_not_found(movie_client) -> None:
+    client, _ = movie_client
+    assert (await client.delete("/movies/000000")).status_code == 404

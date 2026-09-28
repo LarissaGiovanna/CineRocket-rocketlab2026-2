@@ -393,6 +393,30 @@ def create_app() -> FastAPI:
             nota_media=summary.nota_media_usuarios if summary else None,
         )
 
+    @app.delete("/movies/{movie_id}", tags=["movies"], status_code=204)
+    async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)) -> None:
+        """Exclui um filme e suas linhas dependentes (performance, resumo,
+        avaliações, bridges). Gêneros/pessoas do catálogo são mantidos.
+        Inexistente -> 404.
+        """
+        stmt = (
+            select(movies_models.DimMovie)
+            .where(movies_models.DimMovie.id_filme == movie_id)
+            .options(
+                selectinload(movies_models.DimMovie.genres),
+                selectinload(movies_models.DimMovie.companies),
+                selectinload(movies_models.DimMovie.people),
+                selectinload(movies_models.DimMovie.performance),
+                selectinload(movies_models.DimMovie.reviews_summary),
+                selectinload(movies_models.DimMovie.reviews),
+            )
+        )
+        movie = (await db.execute(stmt)).scalar_one_or_none()
+        if movie is None:
+            raise HTTPException(status_code=404, detail="Filme não encontrado")
+        await db.delete(movie)
+        await db.commit()
+
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:
         return {"status": "ok"}
