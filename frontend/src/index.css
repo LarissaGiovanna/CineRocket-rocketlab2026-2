@@ -24,3 +24,12 @@ body {
   color: var(--color-foreground);
   font-family: var(--font-body);
 }
+
+/* Carrossel sem barra de scroll visível (navegação pelas setas) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

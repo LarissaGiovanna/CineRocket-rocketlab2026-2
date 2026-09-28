@@ -1,13 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import MovieCardView from "../components/MovieCard";
+import { fetchGenreGroups } from "../lib/genreBrowse";
 import { listMovies } from "../lib/movies";
 import type { MovieCard } from "../lib/movieCard";
 
-/** Resultados de Busca (`/search?q=...`) — busca por título via listMovies. */
+/**
+ * Resultados de Busca (`/search?q=...` ou `/search?genre=...`).
+ * - `q`: busca por título (server-side, via GET /movies?query=).
+ * - `genre`: filtro por gênero (client-side — o backend não filtra
+ *   por gênero, então o pool é agrupado no navegador).
+ * Podem ser combinados: o pool respeita `q` e o recorte aplica `genre`.
+ */
 export default function SearchResults() {
   const [params] = useSearchParams();
   const q = params.get("q") ?? "";
+  const genre = params.get("genre") ?? "";
   const [items, setItems] = useState<MovieCard[]>([]);
   const [total, setTotal] = useState(0);
   const [suggestions, setSuggestions] = useState<MovieCard[]>([]);
@@ -17,41 +25,61 @@ export default function SearchResults() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    listMovies(1, 20, q.trim())
-      .then((res) => {
-        if (!alive) return;
-        setItems(res.items);
-        setTotal(res.total);
-      })
-      .catch(() => alive && setItems([]))
-      .finally(() => alive && setLoading(false));
+    setSuggestions([]);
+
+    if (genre) {
+      // Filtro por gênero: agrupa o pool no navegador e recorta a seção.
+      fetchGenreGroups(q.trim())
+        .then((res) => {
+          if (!alive) return;
+          const group = res.groups.find((g) => g.genre === genre);
+          setItems(group ? group.movies : []);
+          setTotal(group ? group.movies.length : 0);
+          if (!group || group.movies.length === 0) {
+            listMovies(1, 5, "")
+              .then((r) => alive && setSuggestions(r.items))
+              .catch(() => {});
+          }
+        })
+        .catch(() => alive && setItems([]))
+        .finally(() => alive && setLoading(false));
+    } else {
+      listMovies(1, 20, q.trim())
+        .then((res) => {
+          if (!alive) return;
+          setItems(res.items);
+          setTotal(res.total);
+        })
+        .catch(() => alive && setItems([]))
+        .finally(() => alive && setLoading(false));
+    }
     return () => {
       alive = false;
     };
-  }, [q]);
+  }, [q, genre]);
 
-  useEffect(() => {
-    if (items.length > 0 || q.trim()) return;
-    listMovies(1, 5, "").then((res) => setSuggestions(res.items)).catch(() => setSuggestions([]));
-  }, [items.length, q]);
-
-  // Sugestões do estado vazio ("talvez você queira ver")
-  useEffect(() => {
-    if (items.length === 0 && q.trim()) {
-      listMovies(1, 5, "").then((res) => setSuggestions(res.items)).catch(() => {});
-    }
-  }, [items.length, q]);
+  const heading = genre ? (
+    <>
+      Gênero: <span className="text-primary">“{genre}”</span>
+      {q && <span className="text-foreground-muted"> · com “{q}”</span>}
+    </>
+  ) : q ? (
+    <>“{q}”</>
+  ) : (
+    "Buscar filmes"
+  );
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 md:px-6">
       <Link to="/" className="font-mono text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground">
         ← Resultados da busca
       </Link>
-      <h1 className="mt-2 font-display text-2xl md:text-3xl">
-        {q ? <>“{q}”</> : "Buscar filmes"}
-      </h1>
+      <h1 className="mt-2 font-display text-2xl md:text-3xl">{heading}</h1>
       <p className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
         {loading ? "buscando…" : `${total} resultado(s)`}
+        {genre && !loading && (
+          <span className="normal-case tracking-normal"> · filtro por gênero aplicado no navegador</span>
+        )}
       </p>
 
       <div className="mt-4 flex gap-2">
@@ -94,7 +122,13 @@ export default function SearchResults() {
           <div className="text-center">
             <p className="text-5xl" aria-hidden>🔍</p>
             <p className="mt-3 font-display text-2xl">
-              {q ? <>Nada para “{q}”</> : "Digite algo para buscar"}
+              {genre ? (
+                <>Nada em “{genre}”{q && <> com “{q}”</>}</>
+              ) : q ? (
+                <>Nada para “{q}”</>
+              ) : (
+                "Digite algo para buscar"
+              )}
             </p>
             <div className="mt-4 flex justify-center gap-3">
               <Link to="/" className="rounded-xl bg-primary px-4 py-2 text-sm text-white hover:bg-primary-hover">
