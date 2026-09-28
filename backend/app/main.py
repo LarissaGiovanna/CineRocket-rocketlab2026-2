@@ -197,7 +197,7 @@ def create_app() -> FastAPI:
            e nada é escrito.
         3. Diretores inexistentes são criados (tipo "Diretor"); os
            existentes são reaproveitados.
-        4. ``id_filme`` é gerado via ``uuid4`` na faixa 00000–99999,
+        4. ``id_filme`` é gerado via ``uuid4`` na faixa 000000–999999,
            verificando colisão com os ids já cadastrados.
         """
         genre_rows = (
@@ -239,8 +239,8 @@ def create_app() -> FastAPI:
                 await db.execute(select(movies_models.DimMovie.id_filme))
             ).scalars()
         )
-        for _ in range(1000):
-            candidate = f"{uuid4().int % 100000:05d}"
+        for _ in range(100000):
+            candidate = f"{uuid4().int % 1000000:06d}"
             if candidate not in existing_ids:
                 break
         else:
