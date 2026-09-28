@@ -182,8 +182,6 @@ def create_app() -> FastAPI:
             )
             for r in rows
         ]
-        if not items:
-            raise HTTPException(status_code=404, detail="Filme ainda não possui avaliações")
         return items
     
     @app.post(
