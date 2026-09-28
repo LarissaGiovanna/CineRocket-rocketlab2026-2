@@ -256,7 +256,12 @@ def create_app() -> FastAPI:
             people=[directors[n] for n in payload.diretores],
         )
         db.add(movie)
-        await db.commit()
+        # se dois filmes forem cadastrados ao mesmo tempo, pode haver colisão de id_filme; o commit falha e o rollback é feito
+        try:
+            await db.commit()
+        except sqlalchemy.exc.IntegrityError as e:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"Erro ao salvar o filme: {str(e)}")
 
         return MovieDetail(
             id=candidate,
