@@ -159,3 +159,134 @@ async def test_post_review_entrada_invalida(review_client, payload: dict) -> Non
     response = await review_client.post("/movies/filme-teste-1/reviews", json=payload)
 
     assert response.status_code == 422
+
+
+@pytest.fixture
+async def movie_client(tmp_path):
+    """Client com banco temporário + generos e 1 diretora (POST /movies não suja o real)."""
+    from app.movies.models import DimGenre, DimPerson
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/movies.db")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+    async with session_factory() as session:
+        session.add(DimGenre(sk_genre_id="g1", nome_genero="Drama"))
+        session.add(DimGenre(sk_genre_id="g2", nome_genero="Comédia"))
+        session.add(
+            DimPerson(sk_person_id="p1", nome_pessoa="Diretora Existente", tipo_pessoa="Diretor")
+        )
+        await session.commit()
+
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client, session_factory
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()
+
+
+async def test_post_movie_ok(movie_client) -> None:
+    import re
+
+    from sqlalchemy import func, select
+
+    from app.movies.models import DimMovie, DimPerson
+
+    client, session_factory = movie_client
+    response = await client.post(
+        "/movies",
+        json={
+            "titulo": "Filme Novo",
+            "diretores": ["Diretora Existente", "Diretor Novo", "Diretor Novo "],
+            "ano_lancamento": 2024,
+            "generos": ["Drama", "Comédia"],
+            "sinopse": "Uma sinopse.",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert re.fullmatch(r"\d{5}", body["id"])
+    assert body["titulo"] == "Filme Novo"
+    assert body["diretores"] == ["Diretora Existente", "Diretor Novo"]
+    assert body["generos"] == ["Drama", "Comédia"]
+
+    detail = await client.get(f"/movies/{body['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["titulo"] == "Filme Novo"
+
+    async with session_factory() as session:
+        directors = (
+            await session.execute(
+                select(DimPerson).where(
+                    DimPerson.tipo_pessoa == "Diretor",
+                    DimPerson.nome_pessoa == "Diretor Novo",
+                )
+            )
+        ).scalars()
+        assert len(directors.all()) == 1  # criado 1x, sem duplicar
+        movies = (await session.execute(select(func.count()).select_from(DimMovie))).scalar()
+        assert movies == 1
+
+
+async def test_post_movie_genero_inexistente_400(movie_client) -> None:
+    from sqlalchemy import func, select
+
+    from app.movies.models import DimMovie, DimPerson
+
+    client, session_factory = movie_client
+    before_movies = before_people = None
+    async with session_factory() as session:
+        before_movies = (
+            await session.execute(select(func.count()).select_from(DimMovie))
+        ).scalar()
+        before_people = (
+            await session.execute(select(func.count()).select_from(DimPerson))
+        ).scalar()
+
+    response = await client.post(
+        "/movies",
+        json={
+            "titulo": "Filme X",
+            "diretores": ["Alguém Novo"],
+            "ano_lancamento": 2024,
+            "generos": ["Drama", "Inventado"],
+            "sinopse": "Y.",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Inventado" in response.json()["detail"]
+
+    async with session_factory() as session:
+        after_movies = (await session.execute(select(func.count()).select_from(DimMovie))).scalar()
+        after_people = (await session.execute(select(func.count()).select_from(DimPerson))).scalar()
+    assert after_movies == before_movies  # nada escrito: nem filme...
+    assert after_people == before_people  # ...nem diretor novo
+
+
+async def test_post_movie_ids_unicos(movie_client) -> None:
+    client, _ = movie_client
+    ids = set()
+    for i in range(3):
+        response = await client.post(
+            "/movies",
+            json={
+                "titulo": f"F {i}",
+                "diretores": ["Diretora Existente"],
+                "ano_lancamento": 2024,
+                "generos": ["Drama"],
+                "sinopse": "Y.",
+            },
+        )
+        assert response.status_code == 201
+        ids.add(response.json()["id"])
+
+    assert len(ids) == 3

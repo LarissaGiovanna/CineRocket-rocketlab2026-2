@@ -140,7 +140,7 @@ class MovieReviewCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
 
     nome: str = Field(min_length=1, max_length=120)
-    nota: float = field_validator("nota")(lambda x: max(0, min(10, x)))
+    nota: float = Field(ge=0, le=10)
     comentario: str = Field(default="", max_length=4000)
 
 
@@ -152,3 +152,60 @@ class MovieReviewCreatedResponse(BaseModel):
     review: MovieReviewItem
     nota_media_usuarios: float = Field(ge=0, le=10)
     qtd_avaliacoes_usuarios: int = Field(ge=0)
+
+
+def _clean_names(value: object, limit: int) -> list[str]:
+    """Normaliza lista de nomes: strip, remove vazios, deduplica."""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    seen: set[str] = set()
+    names: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        name = item.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name[:limit])
+    return names
+
+
+class MovieCreate(BaseModel):
+    """Corpo do POST de cadastro (design.md: Adicionar Filme).
+
+    ``generos`` e ``diretores`` aceitam vários nomes. A checagem de que
+    cada gênero existe no banco (``dim_genres``) é feita na rota, que
+    tem acesso ao ``db`` — o schema valida forma e limites.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    titulo: str = Field(min_length=1, max_length=500)
+    diretores: list[str] = Field(min_length=1)
+    ano_lancamento: int
+    generos: list[str] = Field(min_length=1)
+    sinopse: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("diretores", mode="before")
+    @classmethod
+    def _clean_diretores(cls, value: object) -> list[str]:
+        return _clean_names(value, 255)
+
+    @field_validator("generos", mode="before")
+    @classmethod
+    def _clean_generos(cls, value: object) -> list[str]:
+        return _clean_names(value, 50)
+
+    @field_validator("ano_lancamento")
+    @classmethod
+    def _valid_year(cls, value: int) -> int:
+        """Ano entre 1888 (primeiro filme) e ano atual + 2."""
+        from datetime import date as _date
+
+        top = _date.today().year + 2
+        if not 1888 <= value <= top:
+            raise ValueError(f"ano deve estar entre 1888 e {top}")
+        return value

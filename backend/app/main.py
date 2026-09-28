@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from app.db.session import engine, get_db
 from app.movies import models as movies_models
 from app.movies.schemas import (
     MovieCard,
+    MovieCreate,
     MovieDetail,
     MovieListResponse,
     MovieReviewCreate,
@@ -180,7 +182,96 @@ def create_app() -> FastAPI:
             )
             for r in rows
         ]
+        if not items:
+            raise HTTPException(status_code=404, detail="Filme ainda não possui avaliações")
         return items
+    
+    @app.post(
+        "/movies", tags=["movies"], response_model=MovieDetail, status_code=201
+    )
+    async def create_movie(
+        payload: MovieCreate, db: AsyncSession = Depends(get_db)
+    ) -> MovieDetail:
+        """Cadastra um filme (formulário Adicionar Filme).
+
+        1. Listas já vêm normalizadas pelo schema (strip, sem vazios/duplicados).
+        2. Gêneros precisam existir no banco — se algum não existir, 400
+           e nada é escrito.
+        3. Diretores inexistentes são criados (tipo "Diretor"); os
+           existentes são reaproveitados.
+        4. ``id_filme`` é gerado via ``uuid4`` na faixa 00000–99999,
+           verificando colisão com os ids já cadastrados.
+        """
+        genre_rows = (
+            await db.execute(
+                select(movies_models.DimGenre).where(
+                    movies_models.DimGenre.nome_genero.in_(payload.generos)
+                )
+            )
+        ).scalars()
+        found_genres = {g.nome_genero: g for g in genre_rows}
+        missing = [g for g in payload.generos if g not in found_genres]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Gêneros não cadastrados: {', '.join(missing)}",
+            )
+
+        person_rows = (
+            await db.execute(
+                select(movies_models.DimPerson).where(
+                    movies_models.DimPerson.tipo_pessoa == "Diretor",
+                    movies_models.DimPerson.nome_pessoa.in_(payload.diretores),
+                )
+            )
+        ).scalars()
+        directors = {p.nome_pessoa: p for p in person_rows}
+        for name in payload.diretores:
+            if name not in directors:
+                person = movies_models.DimPerson(
+                    sk_person_id=movies_models.generate_surrogate_key(),
+                    nome_pessoa=name,
+                    tipo_pessoa="Diretor",
+                )
+                db.add(person)
+                directors[name] = person
+
+        existing_ids = set(
+            (
+                await db.execute(select(movies_models.DimMovie.id_filme))
+            ).scalars()
+        )
+        for _ in range(1000):
+            candidate = f"{uuid4().int % 100000:05d}"
+            if candidate not in existing_ids:
+                break
+        else:
+            raise HTTPException(status_code=500, detail="Não foi possível gerar um id único")
+
+        movie = movies_models.DimMovie(
+            sk_movie_id=movies_models.generate_surrogate_key(),
+            id_filme=candidate,
+            titulo=payload.titulo,
+            ano_lancamento=payload.ano_lancamento,
+            sinopse=payload.sinopse,
+            genres=[found_genres[g] for g in payload.generos],
+            people=[directors[n] for n in payload.diretores],
+        )
+        db.add(movie)
+        await db.commit()
+
+        return MovieDetail(
+            id=candidate,
+            titulo=payload.titulo,
+            ano_lancamento=payload.ano_lancamento,
+            sinopse=payload.sinopse,
+            generos=list(payload.generos),
+            diretores=list(payload.diretores),
+        )
+
+    @app.get("/health", tags=["health"])
+    async def health_check() -> dict[str, str]:
+        return {"status": "ok"}
 
     @app.post(
         "/movies/{movie_id}/reviews",
@@ -254,11 +345,6 @@ def create_app() -> FastAPI:
             nota_media_usuarios=new_avg,
             qtd_avaliacoes_usuarios=new_qtd,
         )
-        
-    @app.get("/health", tags=["health"])
-    async def health_check() -> dict[str, str]:
-        return {"status": "ok"}
-    
     return app
 
 
