@@ -29,7 +29,7 @@ export default function RatingPicker({ value, onChange }: Props) {
         ))}
       </div>
       <p
-        className="mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs"
+        className="mt-2 inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-2xl px-3 py-1 text-xs sm:rounded-full"
         style={{ background: `${tier.color}22`, color: tier.color }}
       >
         <span aria-hidden>{tier.emoji}</span>

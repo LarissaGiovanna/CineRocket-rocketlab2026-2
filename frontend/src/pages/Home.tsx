@@ -139,8 +139,8 @@ export default function Home() {
           )}
           {groups.map((g) => (
             <section key={g.genre} className="mb-8" aria-label={`Filmes de ${g.genre}`}>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="font-display text-xl">
+              <div className="mb-3 flex items-center justify-between gap-2 sm:gap-3">
+                <h2 className="min-w-0 truncate font-display text-lg sm:text-xl">
                   {g.genre}{" "}
                   <span className="font-mono text-xs text-muted-foreground">
                     ({g.movies.length})

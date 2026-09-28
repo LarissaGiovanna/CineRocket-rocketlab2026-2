@@ -97,7 +97,7 @@ export default function SearchResults() {
       <Link to="/" className="font-mono text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground">
         ← Resultados da busca
       </Link>
-      <h1 className="mt-2 font-display text-2xl md:text-3xl">{heading}</h1>
+      <h1 className="mt-2 break-words font-display text-2xl md:text-3xl">{heading}</h1>
       <p className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
         {loading ? "buscando…" : `${total} resultado(s)`}
         {genre && !loading && (
@@ -169,7 +169,7 @@ export default function SearchResults() {
                 "Digite algo para buscar"
               )}
             </p>
-            <div className="mt-4 flex justify-center gap-3">
+            <div className="mt-4 flex flex-wrap justify-center gap-3">
               <Link to="/" className="rounded-xl bg-primary px-4 py-2 text-sm text-white hover:bg-primary-hover">
                 Ver todos os filmes
               </Link>

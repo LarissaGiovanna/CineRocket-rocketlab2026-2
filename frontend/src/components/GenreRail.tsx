@@ -50,7 +50,7 @@ export default function GenreRail({ movies, label }: Props) {
   }
 
   const arrowCls =
-    "absolute top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/70 text-foreground backdrop-blur-sm transition hover:border-border-hover hover:bg-black/90";
+    "absolute top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/70 text-foreground backdrop-blur-sm transition hover:border-border-hover hover:bg-black/90 md:h-10 md:w-10";
 
   return (
     <div className="relative">

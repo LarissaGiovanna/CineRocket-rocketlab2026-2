@@ -123,7 +123,7 @@ export default function MovieDetailPage() {
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <h1 className="font-display text-3xl md:text-4xl">{movie.titulo}</h1>
+          <h1 className="break-words font-display text-3xl md:text-4xl">{movie.titulo}</h1>
           <p className="mt-1 text-sm text-foreground-muted">
             {movie.diretores.join(", ") || "Diretor desconhecido"}
             {movie.ano_lancamento ? ` · ${movie.ano_lancamento}` : ""}
@@ -212,7 +212,7 @@ export default function MovieDetailPage() {
                 id="r-nome"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-border-hover"
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-base outline-none focus:border-border-hover md:text-sm"
                 placeholder="Como quer aparecer?"
               />
             </div>
@@ -226,7 +226,7 @@ export default function MovieDetailPage() {
                 rows={3}
                 value={comentario}
                 onChange={(e) => setComentario(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-border-hover"
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-base outline-none focus:border-border-hover md:text-sm"
                 placeholder="O que achou do filme?"
               />
             </div>
@@ -269,7 +269,7 @@ export default function MovieDetailPage() {
                   </span>
                   {r.data && <span className="ml-auto font-mono text-xs text-muted-foreground">{r.data.slice(0, 10)}</span>}
                 </div>
-                {r.comentario && <p className="mt-2 text-sm text-foreground-muted">{r.comentario}</p>}
+                {r.comentario && <p className="mt-2 break-words text-sm text-foreground-muted">{r.comentario}</p>}
               </article>
             );
           })}

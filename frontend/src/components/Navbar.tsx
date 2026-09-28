@@ -100,7 +100,7 @@ export default function Navbar() {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="Buscar filmes por título..."
-              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-border-hover"
+              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-base outline-none placeholder:text-muted-foreground focus:border-border-hover"
             />
           </form>
         </div>

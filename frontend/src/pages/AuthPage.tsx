@@ -34,7 +34,7 @@ export default function AuthPage() {
   }
 
   const inputCls = (bad?: string) =>
-    `w-full rounded-xl border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-border-hover ${
+    `w-full rounded-xl border bg-card px-3 py-2 text-base outline-none placeholder:text-muted-foreground focus:border-border-hover md:text-sm ${
       bad ? "border-red-500" : "border-border"
     }`;
 
