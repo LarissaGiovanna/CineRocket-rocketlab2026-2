@@ -569,3 +569,14 @@ async def test_delete_movie_ok(movie_client) -> None:
 async def test_delete_movie_not_found(movie_client) -> None:
     client, _ = movie_client
     assert (await client.delete("/movies/000000")).status_code == 404
+
+
+async def test_get_genres() -> None:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/genres")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list) and all(isinstance(g, str) for g in body)
+    assert body == sorted(body)

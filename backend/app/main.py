@@ -393,6 +393,18 @@ def create_app() -> FastAPI:
             nota_media=summary.nota_media_usuarios if summary else None,
         )
 
+    @app.get("/genres", tags=["movies"], response_model=list[str])
+    async def get_genres(db: AsyncSession = Depends(get_db)) -> list[str]:
+        """Lista os gêneros cadastrados (ordem alfabética)."""
+        rows = (
+            await db.execute(
+                select(movies_models.DimGenre.nome_genero).order_by(
+                    movies_models.DimGenre.nome_genero
+                )
+            )
+        ).scalars()
+        return list(rows)
+
     @app.delete("/movies/{movie_id}", tags=["movies"], status_code=204)
     async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)) -> None:
         """Exclui um filme e suas linhas dependentes (performance, resumo,
