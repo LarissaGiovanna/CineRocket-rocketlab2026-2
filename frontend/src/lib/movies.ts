@@ -1,5 +1,5 @@
 import { api } from "./api";
-import { type MovieCard, parseMovieCard } from "./movieCard";
+import { type MovieCard } from "./movieCard";
 import { type MovieDetail, parseMovieDetail } from "./movieDetail";
 import { type MovieListResponse, parseMovieListResponse } from "./movieListResponse";
 import { type MovieReviewCreate, type MovieReviewCreatedResponse,
