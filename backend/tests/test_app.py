@@ -348,13 +348,22 @@ async def test_put_movie_ok(movie_client) -> None:
     assert detail["titulo"] == "Depois" and detail["generos"] == ["Comédia"]
 
 
-async def test_put_movie_diretor_novo_criado(movie_client) -> None:
+async def test_put_movie_diretor_novo_renomeia_mesma_linha(movie_client) -> None:
     from sqlalchemy import select
 
     from app.movies.models import DimPerson
 
     client, session_factory = movie_client
     created = await _post_filme(client)
+    async with session_factory() as session:
+        old_sk = (
+            await session.execute(
+                select(DimPerson.sk_person_id).where(
+                    DimPerson.nome_pessoa == "Diretora Existente",
+                    DimPerson.tipo_pessoa == "Diretor",
+                )
+            )
+        ).scalar_one()
 
     response = await client.put(
         f"/movies/{created['id']}",
@@ -372,13 +381,16 @@ async def test_put_movie_diretor_novo_criado(movie_client) -> None:
     async with session_factory() as session:
         row = (
             await session.execute(
-                select(DimPerson).where(
-                    DimPerson.nome_pessoa == "Estreante Total",
-                    DimPerson.tipo_pessoa == "Diretor",
-                )
+                select(DimPerson).where(DimPerson.sk_person_id == old_sk)
             )
-        ).scalar_one_or_none()
-    assert row is not None
+        ).scalar_one()
+        assert row.nome_pessoa == "Estreante Total"  # mesma linha, renomeada
+        old = (
+            await session.execute(
+                select(DimPerson).where(DimPerson.nome_pessoa == "Diretora Existente")
+            )
+        ).scalars()
+        assert old.all() == []
 
 
 async def test_put_movie_diretor_de_outro_filme_400(movie_client) -> None:
@@ -441,3 +453,53 @@ async def test_put_movie_not_found(movie_client) -> None:
     )
 
     assert response.status_code == 404
+
+
+async def test_put_movie_sem_diretor_segue_logica_do_post(movie_client) -> None:
+    from sqlalchemy import func, select
+
+    from app.movies.models import DimMovie, DimPerson
+
+    client, session_factory = movie_client
+    async with session_factory() as session:
+        session.add(DimMovie(sk_movie_id="sk-sem-dir", id_filme="semdir", titulo="Sem Dir"))
+        await session.commit()
+
+    first = await client.put(
+        "/movies/semdir",
+        json={
+            "titulo": "Sem Dir",
+            "diretores": ["Novato"],
+            "ano_lancamento": 2024,
+            "generos": ["Drama"],
+            "sinopse": "Base.",
+        },
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["diretores"] == ["Novato"]
+
+    async with session_factory() as session:
+        session.add(DimMovie(sk_movie_id="sk-sem-dir2", id_filme="semdir2", titulo="Sem Dir 2"))
+        await session.commit()
+
+    second = await client.put(
+        "/movies/semdir2",
+        json={
+            "titulo": "Sem Dir 2",
+            "diretores": ["Novato"],
+            "ano_lancamento": 2024,
+            "generos": ["Drama"],
+            "sinopse": "Base.",
+        },
+    )
+    assert second.status_code == 200
+
+    async with session_factory() as session:
+        count = (
+            await session.execute(
+                select(func.count())
+                .select_from(DimPerson)
+                .where(DimPerson.nome_pessoa == "Novato")
+            )
+        ).scalar()
+    assert count == 1  # reaproveitado, não duplicado

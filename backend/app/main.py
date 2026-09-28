@@ -279,10 +279,12 @@ def create_app() -> FastAPI:
         1. Busca como no GET (404 se não existir), com gêneros e pessoas.
         2. Valida TODA a lista de gêneros antes de mexer no banco:
            desconhecido -> 400 sem escrever nada; válido -> ``genres =`` novo.
-        3. Diretores: nome novo -> criado; nome já ligado ao filme -> mantido;
-           nome que pertence a diretora de OUTRO filme -> 400 sem alterar nada
-           (evita atribuir o filme à pessoa errada em caso de homônimo).
-           Atores/rotistas do filme são preservados.
+        3. Diretor (o front envia um só, usa-se o primeiro da lista):
+           mesmo nome do atual -> mantido; filme sem diretor -> mesma
+           lógica do POST (reaproveita ou cria); nome diferente e já
+           pertencente a outro diretor -> 400 sem alterar nada;
+           senão o diretor atual é RENOMEADO no banco (uma linha só).
+           Demais diretores ligados e atores/rotistas são preservados.
         """
         stmt = (
             select(movies_models.DimMovie)
@@ -313,36 +315,49 @@ def create_app() -> FastAPI:
                 detail=f"Gêneros não cadastrados: {', '.join(missing_genres)}",
             )
 
-        current_directors = {
-            p.nome_pessoa: p for p in movie.people if p.tipo_pessoa == "Diretor"
-        }
-        new_names = [n for n in payload.diretores if n not in current_directors]
-        taken: list[str] = []
-        if new_names:
-            taken_rows = (
+        linked = [p for p in movie.people if p.tipo_pessoa == "Diretor"]
+        new_name = payload.diretores[0]  # o front envia um diretor só
+        if new_name in {p.nome_pessoa for p in linked}:
+            directors = linked  # mesmo nome: mantém tudo como está
+        elif not linked:
+            # Filme sem diretor: mesma lógica do POST (reaproveita ou cria).
+            found = (
                 await db.execute(
                     select(movies_models.DimPerson).where(
                         movies_models.DimPerson.tipo_pessoa == "Diretor",
-                        movies_models.DimPerson.nome_pessoa.in_(new_names),
+                        movies_models.DimPerson.nome_pessoa == new_name,
                     )
                 )
-            ).scalars()
-            taken = [p.nome_pessoa for p in taken_rows]
-        if taken:
+            ).scalar_one_or_none()
+            if found is None:
+                found = movies_models.DimPerson(
+                    sk_person_id=movies_models.generate_surrogate_key(),
+                    nome_pessoa=new_name,
+                    tipo_pessoa="Diretor",
+                )
+                db.add(found)
+            directors = [found]
+        elif len(linked) > 1:
             raise HTTPException(
                 status_code=400,
-                detail=f"Diretores já cadastrados para outra pessoa: {', '.join(taken)}",
+                detail="Filme com mais de um diretor: ajuste manual necessário",
             )
-
-        directors = [current_directors[n] for n in payload.diretores if n in current_directors]
-        for name in new_names:
-            person = movies_models.DimPerson(
-                sk_person_id=movies_models.generate_surrogate_key(),
-                nome_pessoa=name,
-                tipo_pessoa="Diretor",
-            )
-            db.add(person)
-            directors.append(person)
+        else:
+            taken = (
+                await db.execute(
+                    select(movies_models.DimPerson).where(
+                        movies_models.DimPerson.tipo_pessoa == "Diretor",
+                        movies_models.DimPerson.nome_pessoa == new_name,
+                    )
+                )
+            ).scalar_one_or_none()
+            if taken is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Diretor já cadastrado para outra pessoa: {new_name}",
+                )
+            linked[0].nome_pessoa = new_name  # renomeia a linha existente
+            directors = linked
 
         movie.titulo = payload.titulo
         movie.ano_lancamento = payload.ano_lancamento
