@@ -1,14 +1,49 @@
-# RocketLab 2026.2 — repositório base
+# CineRocket — Avaliador de Filmes (RocketLab 2026.2)
+Aplicação web para catalogar filmes e receber avaliações de usuários, com nota de 0 a 10 e uma classificação temática inspirada em foguetes.
 
-Base inicial para evoluir a atividade do RocketLab 2026.2. Ela preserva a organização do backend,
-o modelo relacional do catálogo de filmes em SQLAlchemy 2.0 e o histórico de
-migrações com Alembic, sem incluir interface, dados CSV, endpoints de negócio
-ou rotinas de carga.
+Este projeto é a atividade DEV do RocketLab 2026.2: o front foi construído em React + TypeScript (Vite), o back em FastAPI e o banco é SQLite, com o schema (SQLAlchemy) e as migrações (Alembic) herdados do repositório base do curso.
 
-> **Nota:** `RocketLab` é apenas o nome de referência desta base. O diretório,
-> nome do pacote, título da API e arquivo do banco podem ser renomeados para o
-> que preferirem; eles não representam uma exigência da
-> estrutura-base.
+## Como funciona
+1. Na Home, o usuário navega por um grid de filmes com pôster, nome e nota média.
+2. Ao clicar em um filme, a página de detalhes mostra sinopse, gêneros, diretor(es), atores, orçamento/receita, popularidade e notas do TMDB/IMDb, além das avaliações da plataforma.
+3. O usuário pode registrar uma nova avaliação (nome, nota de 0 a 10 com até 2 casas decimais e comentário); a média da plataforma é recalculada de forma incremental.
+4. Também é possível cadastrar, editar e excluir filmes diretamente pela interface.
+
+## Como executar
+### Requisitos
+1. Python 3.11 ou superior
+2. Node.js (para o front em Vite + React)
+3. Os arquivos CSV da camada Diamond (filmes, gêneros, pessoas, produtoras, performance e reviews) — não incluídos no repositório
+
+### 1. Backend
+```bash
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+cp .env.example .env
+.venv/bin/alembic upgrade head
+```
+
+Coloque os CSVs na pasta esperada pelo script de carga e rode o seed:
+```bash
+.venv/bin/python seed.py --truncate
+```
+
+Inicie a API:
+```bash
+.venv/bin/uvicorn app.main:app --reload
+```
+
+A API ficará disponível em `http://localhost:8000`; use `http://localhost:8000/docs` para a documentação automática (Swagger).
+
+### 2. Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+O front ficará disponível em `http://localhost:5173` e consome a API em `http://localhost:8000`.
 
 ## Estrutura
 
@@ -16,133 +51,35 @@ ou rotinas de carga.
 .
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/        # ponto de composição dos futuros routers
 │   │   ├── core/          # configurações e logging
 │   │   ├── db/            # Base ORM, engine e sessões
-│   │   └── movies/        # modelos SQLAlchemy do domínio de filmes
-│   ├── migrations/        # ambiente e revisões Alembic
-│   ├── scripts/seed.py    # importação dos CSVs de dados/
-│   └── tests/
-├── frontend/              # CineRocket (Vite + React + TS + Tailwind v4)
-│   ├── src/
-│   │   ├── lib/api.ts     # client axios (VITE_API_URL)
-│   │   ├── App.tsx        # rotas base
-│   │   └── index.css      # tema Tailwind + tokens do design.md
-│   └── .env.example
-└── README.md
+│   │   ├── movies/        # modelos SQLAlchemy do domínio de filmes
+│   │   └── main.py        # rotas da API (sem router separado por domínio)
+│   ├── migrations/        # Alembic
+│   └── seed.py            # carga dos CSVs para o SQLite
+├── frontend/               # React + TypeScript (Vite)
+└── ia/
 ```
 
-## Pré-requisitos
+> Todas as rotas de filmes estão diretamente em `app/main.py`;
 
-- Python 3.11 ou superior
-- Node 20+ e npm 10+
+## Rotas da API
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/movies` | Lista paginada de filmes (`page`, `page_size`, `query`); ordenação fixa por título |
+| GET | `/movies/{id_filme}` | Detalhe do filme: gêneros, diretores, atores, orçamento/receita/lucro, popularidade, notas TMDB/IMDb e resumo de avaliações |
+| GET | `/movies/{id_filme}/reviews` | Lista de avaliações do filme |
+| POST | `/movies/{id_filme}/reviews` | Cria uma avaliação e atualiza a média incremental |
+| POST | `/movies` | Cadastra um filme (diretores e gêneros como listas) |
+| PUT | `/movies/{id_filme}` | Edita um filme (mesmo schema do POST; usa apenas `diretores[0]`) |
+| DELETE | `/movies/{id_filme}` | Remove um filme e seus dados relacionados (cascata) |
+| GET | `/genres` | Lista de gêneros cadastrados, em ordem alfabética |
 
-## Execução — Backend (FastAPI)
+## Decisões de escopo
+- Sem autenticação real: a tela `/auth` existe visualmente (toggle Entrar/Cadastrar), mas o botão de envio apenas redireciona para uma página "em breve".
+- Formulário de Adicionar/Editar filme não inclui pôster, duração, país ou idioma (fora do schema `MovieCreate`).
+- Campo de diretor tratado como único no formulário (mesmo o backend aceitando lista), para simplificar o fluxo dentro do prazo.
+- O repositório não inclui os CSVs de dados; quem for rodar o projeto precisa obtê-los e adicioná-los por conta própria antes do `seed.py`.
 
-```bash
-cd backend
-python -m venv .venv
-# Linux/macOS:
-.venv/bin/pip install -e ".[dev]"
-cp .env.example .env
-.venv/bin/alembic upgrade head
-.venv/bin/uvicorn app.main:app --reload
-
-# Windows (PowerShell / Git Bash):
-.venv/Scripts/pip install -e ".[dev]"
-copy .env.example .env
-.venv/Scripts/python -m alembic upgrade head
-.venv/Scripts/python -m uvicorn app.main:app --reload
-```
-
-A API mínima ficará disponível em `http://localhost:8000`; use
-`http://localhost:8000/docs` para a documentação automática. O endpoint
-`GET /health` permite conferir se a aplicação iniciou corretamente.
-
-## Execução — Frontend (React + TS + Tailwind)
-
-```bash
-cd frontend
-npm install
-cp .env.example .env   # Windows: copy .env.example .env
-npm run dev
-```
-
-O app ficará disponível em `http://localhost:5173` e consome a API via
-`VITE_API_URL` (padrão `http://localhost:8000`, ver `frontend/.env.example`).
-O `vite.config.ts` já faz proxy de `/api` para `http://localhost:8000`.
-
-Outros comandos:
-
-```bash
-npm run build   # tsc -b + vite build, gera dist/
-npm run preview # serve o build local para conferência
-```
-
-## Importação dos CSVs (seed)
-
-O script `backend/scripts/seed.py` lê a pasta `dados/` (`dim/`, `bridge/`,
-`fact_movies_performance.csv`, `movies_reviews.csv`), normaliza conforme
-`app/movies/models.py` e insere na ordem das chaves estrangeiras
-(genres → companies → people → movies → performance → dim_reviews →
-movie_reviews → merge incremental → bridges). Rode com o banco já migrado
-(`alembic upgrade head`).
-
-```bash
-cd backend
-# Carga total:
-.venv/Scripts/python scripts/seed.py
-# Linux/macOS: .venv/bin/python scripts/seed.py
-
-# Smoke test (200 linhas por CSV, com log detalhado):
-.venv/Scripts/python scripts/seed.py --limit 200 --verbose
-
-# Recriar tudo do zero:
-.venv/Scripts/python scripts/seed.py --truncate --batch-size 5000
-
-# Só algumas etapas:
-.venv/Scripts/python scripts/seed.py --only movies performance
-# Etapas: genres, companies, people, movies, performance,
-#         dim_reviews, movie_reviews, bridges
-```
-
-Opções: `--dados-dir` (pasta dos CSVs, padrão `../dados`),
-`--database-url` (sobrescreve o `.env`), `--batch-size` (padrão 5000),
-`--truncate` (limpa as tabelas antes), `--verbose`.
-
-Regras aplicadas: campo vazio vira o mínimo do tipo somente se a coluna for
-`NOT NULL` (lucro `0`, qtd `0`, nome `"Anônimo"`); coluna opcional vazia é
-salva como `NULL`. Nota vazia pula a linha (não se fabrica avaliação).
-Texto acima do limite é truncado e reportado ao final (hoje: 0 ocorrências);
-`dim_reviews` pula resumos vazios e é atualizada de forma incremental a
-partir das avaliações novas (média ponderada, sem duplicar em reexecuções).
-Carga total esperada: ~95k filmes, ~425k pessoas, ~44k avaliações, ~983k bridges.
-
-## Banco de dados e migrações
-
-O modelo usa um esquema estrela para o catálogo de filmes:
-
-- dimensões de filmes, gêneros, pessoas, produtoras e resumo de avaliações;
-- fato de desempenho financeiro e de engajamento;
-- tabelas de associação N:N entre filmes, gêneros, produtoras e pessoas;
-
-O schema corresponde aos nove arquivos CSV atuais da camada Diamond, com a
-adição de `movie_reviews`: uma avaliação individual por linha, na escala 0–10.
-A tabela aceita diretamente as colunas `sk_movie_review_id`, `sk_movie_id`,
-`nome`, `nota` e `comentario` do CSV enviado separadamente. `created_at` é
-gerado pelo banco. O contexto generativo não faz parte desta base.
-
-O repositório não inclui CSVs nem rotinas de carga. Para usar avaliações,
-importe primeiro os filmes em `dim_movies` e depois o CSV de `movie_reviews`.
-
-As tabelas são criadas exclusivamente pelo Alembic. Para evoluir os modelos,
-crie uma revisão e aplique-a:
-
-```bash
-cd backend
-.venv/bin/alembic revision --autogenerate -m "descreva a alteração"
-.venv/bin/alembic upgrade head
-```
-
-O banco padrão é SQLite local em `backend/rocketlab.db`. Ajuste
-`DATABASE_URL` no arquivo `.env` para usar outro banco compatível.
+## Banco de dados
+O banco padrão é SQLite local (`backend/rocketlab.db`). O schema segue o modelo estrela do repositório base (dimensões de filmes, gêneros, pessoas, produtoras e avaliações, mais o fato de desempenho financeiro/engajamento). Filmes novos cadastrados pela aplicação são salvos apenas no banco — os CSVs originais não são alterados.
